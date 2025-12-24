@@ -1,6 +1,6 @@
 (function (window, document) {
   // CONFIGURATION: Change this to your deployed Netlify URL later
-  const ENDPOINT = 'https://YOUR-APP-NAME.netlify.app/api/track'; 
+  const ENDPOINT = 'https://insightblaze.netlify.app/api/track'; 
   const SITE_ID = document.currentScript.getAttribute('data-site-id');
 
   let eventQueue = [];
