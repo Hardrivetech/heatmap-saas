@@ -1,8 +1,10 @@
 const { MongoClient } = require("mongodb");
 
-const HF_TOKEN = process.env.HF_API_TOKEN;
-const MODEL = "google/gemma-1.1-7b-it";
-const API_URL = `https://api-inference.huggingface.co/models/${MODEL}`;
+// Environment variable for the Google API Key
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+// Using a fast and capable Gemini model. You can also try "gemini-1.5-flash-latest".
+const MODEL_NAME = "gemini-3-flash";
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GOOGLE_API_KEY}`;
 
 let cachedDb = null;
 
@@ -14,58 +16,83 @@ async function connectToDatabase() {
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
 
   try {
     const { siteId } = JSON.parse(event.body);
     const db = await connectToDatabase();
 
-    // 1. Get Top Clicked Elements
+    // 1. Get Top Clicked Elements (Corrected Aggregation)
     const topClicks = await db.collection('events').aggregate([
-      { : { siteId: siteId, type: 'click' } },
-      { : { _id: "", count: { : 1 } } }, // Group by CSS path
-      { : { count: -1 } },
-      { : 10 }
+      { $match: { siteId: siteId, type: 'click' } },
+      { $group: { _id: "$path", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
     ]).toArray();
 
-    if (topClicks.length === 0) return { statusCode: 200, body: JSON.stringify({ analysis: "No data yet." }) };
+    if (topClicks.length === 0) {
+      return { statusCode: 200, body: JSON.stringify({ analysis: "Not enough data to analyze yet." }) };
+    }
 
-    // 2. Format for Gemma
-    const summary = topClicks.map(i => `- Element: ${i._id} (${i.count} clicks)`).join('\n');
+    // 2. Format data for the prompt
+    const dataSummary = topClicks
+      .map((item, index) => `${index + 1}. Element Selector: "${item._id}" - Clicks: ${item.count}`)
+      .join('\n');
     
-    const prompt = `<start_of_turn>user
-You are a UX expert. Analyze this website click data:
+    // 3. Construct a clean prompt for Gemini
+    const prompt = `
+You are a world-class UX/UI design consultant.
+A client has provided you with click data from their website.
+Analyze the following click summary and provide actionable insights.
 
+Click Data:
+${dataSummary}
 
-1. Which element is most popular?
-2. Are there signs of user frustration?
-3. Suggest one improvement.<end_of_turn>
-<start_of_turn>model`;
+Based on this data, please provide:
+1.  **Top Engaged Element:** Identify the element that receives the most user interaction.
+2.  **Potential User Frustration:** Look for signs of "rage clicks" (high clicks on non-interactive elements like 'div > span') or confusing navigation patterns.
+3.  **Actionable Recommendation:** Suggest one specific, high-impact change to improve user engagement or conversion. Be concise and clear.
+`;
 
-    // 3. Call Hugging Face
+    // 4. Call Google Gemini API
     const response = await fetch(API_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer `,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        inputs: prompt,
-        parameters: { max_new_tokens: 300, return_full_text: false }
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
       }),
     });
 
+    if (!response.ok) {
+      const errorBody = await response.json();
+      console.error("Google API Error:", errorBody);
+      throw new Error(`Google API Error: ${errorBody.error.message}`);
+    }
+
     const result = await response.json();
     
-    // Handle potential loading error or success
-    if (result.error) throw new Error(result.error);
+    // Extract the text from the response
+    const analysisText = result.candidates[0].content.parts[0].text;
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ analysis: result[0].generated_text })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analysis: analysisText })
     };
 
   } catch (error) {
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+    console.error("Analysis Function Error:", error);
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ error: error.message }) 
+    };
   }
 };
