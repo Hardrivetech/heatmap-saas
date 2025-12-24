@@ -51,6 +51,10 @@ exports.handler = async (event, context) => {
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok' }) };
   } catch (error) {
     console.error(error);
-    return { statusCode: 500, headers, body: 'Error' };
+    return { 
+      statusCode: 500, 
+      headers, 
+      body: JSON.stringify({ message: 'An error occurred during tracking.', error: error.message }) 
+    };
   }
 };

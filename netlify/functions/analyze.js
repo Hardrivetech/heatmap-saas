@@ -6,16 +6,25 @@ const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const MODEL_NAME = "gemini-3-flash";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GOOGLE_API_KEY}`;
 
-let cachedDb = null;
+let cachedClient = null;
 
 async function connectToDatabase() {
-  if (cachedDb) return cachedDb;
-  const client = await MongoClient.connect(process.env.MONGODB_URI);
-  cachedDb = client.db('heatmap_saas');
-  return cachedDb;
+  if (cachedClient) return cachedClient.db('heatmap_saas');
+
+  const client = new MongoClient(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+  });
+
+  await client.connect();
+  cachedClient = client;
+  return cachedClient.db('heatmap_saas');
 }
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
+  // Prevent the function from waiting for the MongoDB connection pool to close
+  context.callbackWaitsForEmptyEventLoop = false;
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -92,7 +101,10 @@ Based on this data, please provide:
     console.error("Analysis Function Error:", error);
     return { 
       statusCode: 500, 
-      body: JSON.stringify({ error: error.message }) 
+      body: JSON.stringify({ 
+        message: 'An error occurred during analysis.', 
+        error: error.message 
+      }) 
     };
   }
 };
