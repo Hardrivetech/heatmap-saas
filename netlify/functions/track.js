@@ -10,7 +10,10 @@ async function connectToDatabase() {
   return cachedDb;
 }
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
+  // Prevent the function from waiting for the MongoDB connection pool to close
+  context.callbackWaitsForEmptyEventLoop = false;
+
   // CORS Headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
