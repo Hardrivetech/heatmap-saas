@@ -1,13 +1,19 @@
 const { MongoClient } = require("mongodb");
 
 const uri = process.env.MONGODB_URI;
-let cachedDb = null;
+let cachedClient = null;
 
 async function connectToDatabase() {
-  if (cachedDb) return cachedDb;
-  const client = await MongoClient.connect(uri);
-  cachedDb = client.db('heatmap_saas');
-  return cachedDb;
+  if (cachedClient) return cachedClient.db('heatmap_saas');
+
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+  });
+
+  await client.connect();
+  cachedClient = client;
+  return cachedClient.db('heatmap_saas');
 }
 
 exports.handler = async (event, context) => {
